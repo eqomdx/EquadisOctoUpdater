@@ -38,6 +38,10 @@ UPDATER_VERSION  = "1.3.1"
 #     auto-applied default - it no longer rewrites WoW.exe on its own.
 #   * dlls.txt is written in a defined load order (DLL_LOAD_ORDER) rather than
 #     mod-install order, and dlls.txt.cache is invalidated on every rewrite.
+#   * A mod that is installed and enabled but missing from dlls.txt is
+#     re-registered on Apply. Only install, update and uninstall wrote that
+#     file, so a dlls.txt that drifted out of step could never be repaired -
+#     the mod showed as enabled and simply never loaded.
 #   * PLAY launches through VanillaFixes.exe whenever that file is present,
 #     instead of requiring a config record that is missing after a folder
 #     switch - which silently started the game with no mods loaded.
@@ -2104,6 +2108,20 @@ def add_dll(client_dir: str, name: str):
     # Rewrite even when the entry was already present: a dlls.txt left behind
     # by an older build can still be in the wrong order.
     _write_dlls_txt(client_dir, lines)
+
+
+def ensure_dll(client_dir: str, name: str) -> bool:
+    """add_dll, but only when the entry is genuinely absent.
+
+    Every write drops dlls.txt.cache and makes VanillaFixes rebuild it on the
+    next launch, so a mod that is already registered must not be rewritten just
+    to confirm it. Returns True when something was actually repaired."""
+    path  = _dlls_txt_path(client_dir)
+    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    if any(l.strip().lower() == name.lower() for l in lines):
+        return False
+    add_dll(client_dir, name)
+    return True
 
 
 def remove_dll(client_dir: str, name: str):
@@ -4653,6 +4671,22 @@ class OctoUpdaterApp(tk.Tk):
                 # stops blocking the PLAY button.
                 if not enabled and state.get("error"):
                     mods_cfg.setdefault(mid, {})["error"] = None
+                # An installed, enabled, up-to-date mod still has to be listed
+                # in dlls.txt to load, and nothing else re-checks that. The
+                # three paths that write the file are install, update and
+                # uninstall, so once it drifts out of step with the config --
+                # a restore from one of the installer's backups, an interrupted
+                # run, a mod installed before DLL_LOAD_ORDER existed -- the mods
+                # list reports the mod as enabled forever while VanillaFixes
+                # never injects it. That is a silent failure with nothing to
+                # find: the UI and the config both say yes, and only the file
+                # says no.
+                if enabled and is_installed and mod.get("register_dll"):
+                    if ensure_dll(client_dir, mod["register_dll"]):
+                        log("")
+                        log(f"{mod['name']} was enabled but missing "
+                            f"from dlls.txt - re-registered "
+                            f"{mod['register_dll']}.")
                 continue
 
             action = ("Installing" if needs_install else

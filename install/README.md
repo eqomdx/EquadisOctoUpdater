@@ -97,6 +97,21 @@ anything added by hand keeps its relative order and goes last.
 file as absolute paths, so moving or renaming the game folder leaves every
 entry dead and the mods silently never load.
 
+**A mod enabled but missing from `dlls.txt` is re-registered.** Only three
+paths ever wrote that file — install, update and uninstall. A mod that is
+already installed, enabled and up to date takes none of them, so nothing ever
+checked that its DLL was still listed. Once `dlls.txt` drifted out of step with
+the config — a restore from one of the backups this installer makes, an
+interrupted run, a mod installed before `DLL_LOAD_ORDER` existed — it could
+never be repaired: the MODS tab reported the mod as enabled indefinitely while
+VanillaFixes never injected it. There is nothing to find when this happens,
+because the UI and the config both say yes and only the file says no. Apply now
+reconciles the two, and says so in the log when it repairs one.
+
+Written only when the entry is genuinely absent — every rewrite drops
+`dlls.txt.cache`, and confirming an already-registered mod would make the
+loader rebuild that cache on each launch.
+
 **"Install recommended addons" is unchecked by default.** Upstream ticks it, so
 a fresh run drops a dozen curated addons into your `AddOns` folder without
 asking. Recommended addons are a taste call, not a fix. The ADDONS tab still
