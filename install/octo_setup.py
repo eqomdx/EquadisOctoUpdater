@@ -232,6 +232,21 @@ def add_dll(client_dir: str, name: str):
     _write_dlls_txt(client_dir, lines)
 
 
+def ensure_dll(client_dir: str, name: str) -> bool:
+    """add_dll, but only when the entry is genuinely absent.
+
+    Every write drops dlls.txt.cache and makes VanillaFixes rebuild it on the
+    next launch, so a mod that is already registered must not be rewritten just
+    to confirm it. Returns True when something was actually repaired."""
+    path  = _dlls_txt_path(client_dir)
+    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    if any(l.strip().lower() == name.lower() for l in lines):
+        return False
+    add_dll(client_dir, name)
+    return True
+
+
+
 def remove_dll(client_dir: str, name: str):
     path = _dlls_txt_path(client_dir)
     if not os.path.exists(path):
@@ -243,6 +258,31 @@ def remove_dll(client_dir: str, name: str):
         _invalidate_dll_cache(client_dir)
     else:
         _write_dlls_txt(client_dir, lines)''',
+    ),
+    (
+        "dlls.txt reconciled for mods that need no other work",
+        '''                if not enabled and state.get("error"):
+                    mods_cfg.setdefault(mid, {})["error"] = None
+                continue''',
+        '''                if not enabled and state.get("error"):
+                    mods_cfg.setdefault(mid, {})["error"] = None
+                # An installed, enabled, up-to-date mod still has to be listed
+                # in dlls.txt to load, and nothing else re-checks that. The
+                # three paths that write the file are install, update and
+                # uninstall, so once it drifts out of step with the config --
+                # a restore from one of the installer's backups, an interrupted
+                # run, a mod installed before DLL_LOAD_ORDER existed -- the mods
+                # list reports the mod as enabled forever while VanillaFixes
+                # never injects it. That is a silent failure with nothing to
+                # find: the UI and the config both say yes, and only the file
+                # says no.
+                if enabled and is_installed and mod.get("register_dll"):
+                    if ensure_dll(client_dir, mod["register_dll"]):
+                        log("")
+                        log(f"{mod['name']} was enabled but missing "
+                            f"from dlls.txt - re-registered "
+                            f"{mod['register_dll']}.")
+                continue''',
     ),
     (
         "field-of-view suggestion shown in the Tweaks panel",
