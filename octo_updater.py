@@ -45,6 +45,9 @@ UPDATER_VERSION  = "1.3.1"
 #   * PLAY launches through VanillaFixes.exe whenever that file is present,
 #     instead of requiring a config record that is missing after a folder
 #     switch - which silently started the game with no mods loaded.
+#   * Every enabled mod is re-registered in dlls.txt at the end of every
+#     Apply - single-mod updates included - and again on PLAY, so a file
+#     rewritten by the official launcher cannot silently drop a mod.
 #   * "Install recommended addons" is unchecked by default, so a curated
 #     AddOns folder is never filled in on first run without being asked.
 # UPDATER_VERSION is left at 1.3.1 so the daily upstream release check still
@@ -2122,6 +2125,36 @@ def ensure_dll(client_dir: str, name: str) -> bool:
         return False
     add_dll(client_dir, name)
     return True
+
+
+def reconcile_dlls_txt(client_dir: str, mods_cfg: dict) -> list:
+    """Put every enabled, installed mod's DLL back into dlls.txt if it has
+    gone missing. Returns the names that were re-registered.
+
+    ensure_dll repairs one mod when the Apply loop visits it - and a targeted
+    single-mod update visits only that one mod, so the loop skips the others
+    and their entries never get checked. That is exactly how UnitXP_SP3 was
+    lost a second time: something outside this updater (the official launcher
+    rewrites dlls.txt with its own list) dropped it, and the next thing to run
+    was a one-click ClassicAPI update, which wrote the file back without it.
+
+    So the sweep is its own step, run on every Apply regardless of scope, and
+    on PLAY - the last thing between the file and the loader. Cheap: one read
+    of dlls.txt per mod, a write only when something is actually absent."""
+    repaired = []
+    for mod in MODS_REGISTRY:
+        name = mod.get("register_dll")
+        if not name:
+            continue
+        state = mods_cfg.get(mod["id"], {})
+        if not state.get("enabled") or not state.get("installed_version"):
+            continue
+        files = state.get("installed_files") or mod.get("installed_files") or []
+        if not all(os.path.exists(os.path.join(client_dir, f)) for f in files):
+            continue   # the DLL itself is gone; registering it would only break the loader
+        if ensure_dll(client_dir, name):
+            repaired.append(name)
+    return repaired
 
 
 def remove_dll(client_dir: str, name: str):
@@ -4770,6 +4803,12 @@ class OctoUpdaterApp(tk.Tk):
         if only_mod_id is None:
             self._mod_pending_state = {}
 
+        # Whatever the scope of this run, every enabled mod must be in
+        # dlls.txt when it ends. See reconcile_dlls_txt for the case that
+        # made this a separate step.
+        for name in reconcile_dlls_txt(client_dir, fresh_mods):
+            log(f"{name} was enabled but missing from dlls.txt - re-registered.")
+
         def _do_inplace_update():
             for mod in MODS_REGISTRY:
                 mid         = mod["id"]
@@ -6442,6 +6481,18 @@ class OctoUpdaterApp(tk.Tk):
         import subprocess
         client_dir = self._game_path.get().strip()
         cfg        = load_config()
+
+        # The loader reads dlls.txt in a moment. Anything that edited that file
+        # since the last Apply - the official launcher, a restore, a hand edit
+        # - can have dropped an enabled mod, and a mod dropped here is a mod
+        # that silently does not exist in the game. Last chance to put it back.
+        try:
+            for name in reconcile_dlls_txt(client_dir, cfg.get("mods", {})):
+                self._log_line(f"{name} was missing from dlls.txt - "
+                               f"re-registered before launch.\n", "acct")
+        except Exception as e:
+            self._log_line(f"Could not check dlls.txt before launch: {e}\n", "err")
+
         # Trust VanillaFixes.exe on disk, not the config record. That record
         # is absent after a game-folder switch, after a config reset, and on
         # any install this updater did not perform itself - and falling back

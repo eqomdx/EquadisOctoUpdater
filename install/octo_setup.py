@@ -246,6 +246,35 @@ def ensure_dll(client_dir: str, name: str) -> bool:
     return True
 
 
+def reconcile_dlls_txt(client_dir: str, mods_cfg: dict) -> list:
+    """Put every enabled, installed mod's DLL back into dlls.txt if it has
+    gone missing. Returns the names that were re-registered.
+
+    ensure_dll repairs one mod when the Apply loop visits it - and a targeted
+    single-mod update visits only that one mod, so the loop skips the others
+    and their entries never get checked. That is exactly how UnitXP_SP3 was
+    lost a second time: something outside this updater (the official launcher
+    rewrites dlls.txt with its own list) dropped it, and the next thing to run
+    was a one-click ClassicAPI update, which wrote the file back without it.
+
+    So the sweep is its own step, run on every Apply regardless of scope, and
+    on PLAY - the last thing between the file and the loader. Cheap: one read
+    of dlls.txt per mod, a write only when something is actually absent."""
+    repaired = []
+    for mod in MODS_REGISTRY:
+        name = mod.get("register_dll")
+        if not name:
+            continue
+        state = mods_cfg.get(mod["id"], {})
+        if not state.get("enabled") or not state.get("installed_version"):
+            continue
+        files = state.get("installed_files") or mod.get("installed_files") or []
+        if not all(os.path.exists(os.path.join(client_dir, f)) for f in files):
+            continue   # the DLL itself is gone; registering it would only break the loader
+        if ensure_dll(client_dir, name):
+            repaired.append(name)
+    return repaired
+
 
 def remove_dll(client_dir: str, name: str):
     path = _dlls_txt_path(client_dir)
@@ -283,6 +312,52 @@ def remove_dll(client_dir: str, name: str):
                             f"from dlls.txt - re-registered "
                             f"{mod['register_dll']}.")
                 continue''',
+    ),
+    (
+        "every enabled mod re-registered at the end of every Apply",
+        '''        fresh_cfg  = update_config(_merge)
+        fresh_mods = fresh_cfg.get("mods", {})
+        # Keep pending checkbox toggles on a targeted single-mod update —
+        # they were never applied and would be lost otherwise.
+        if only_mod_id is None:
+            self._mod_pending_state = {}
+''',
+        '''        fresh_cfg  = update_config(_merge)
+        fresh_mods = fresh_cfg.get("mods", {})
+        # Keep pending checkbox toggles on a targeted single-mod update —
+        # they were never applied and would be lost otherwise.
+        if only_mod_id is None:
+            self._mod_pending_state = {}
+
+        # Whatever the scope of this run, every enabled mod must be in
+        # dlls.txt when it ends. See reconcile_dlls_txt for the case that
+        # made this a separate step.
+        for name in reconcile_dlls_txt(client_dir, fresh_mods):
+            log(f"{name} was enabled but missing from dlls.txt - re-registered.")
+''',
+    ),
+    (
+        "dlls.txt reconciled on PLAY, before the loader reads it",
+        '''        import subprocess
+        client_dir = self._game_path.get().strip()
+        cfg        = load_config()
+''',
+        '''        import subprocess
+        client_dir = self._game_path.get().strip()
+        cfg        = load_config()
+
+        # The loader reads dlls.txt in a moment. Anything that edited that file
+        # since the last Apply - the official launcher, a restore, a hand edit
+        # - can have dropped an enabled mod, and a mod dropped here is a mod
+        # that silently does not exist in the game. Last chance to put it back.
+        try:
+            for name in reconcile_dlls_txt(client_dir, cfg.get("mods", {})):
+                self._log_line(f"{name} was missing from dlls.txt - "
+                               f"re-registered before launch.\\n", "acct")
+        except Exception as e:
+            self._log_line(f"Could not check dlls.txt before launch: {e}\\n", "err")
+
+''',
     ),
     (
         "field-of-view suggestion shown in the Tweaks panel",
@@ -364,9 +439,16 @@ def remove_dll(client_dir: str, name: str):
 #     auto-applied default - it no longer rewrites WoW.exe on its own.
 #   * dlls.txt is written in a defined load order (DLL_LOAD_ORDER) rather than
 #     mod-install order, and dlls.txt.cache is invalidated on every rewrite.
+#   * A mod that is installed and enabled but missing from dlls.txt is
+#     re-registered on Apply. Only install, update and uninstall wrote that
+#     file, so a dlls.txt that drifted out of step could never be repaired -
+#     the mod showed as enabled and simply never loaded.
 #   * PLAY launches through VanillaFixes.exe whenever that file is present,
 #     instead of requiring a config record that is missing after a folder
 #     switch - which silently started the game with no mods loaded.
+#   * Every enabled mod is re-registered in dlls.txt at the end of every
+#     Apply - single-mod updates included - and again on PLAY, so a file
+#     rewritten by the official launcher cannot silently drop a mod.
 #   * "Install recommended addons" is unchecked by default, so a curated
 #     AddOns folder is never filled in on first run without being asked.
 # UPDATER_VERSION is left at 1.3.1 so the daily upstream release check still
