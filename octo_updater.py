@@ -139,7 +139,7 @@ C_MOD_HL     = "#a8b83c"   # olive-green highlight for installed mods
 # UPDATE ALL: lit when there is something to update, faded when there is not
 UPDALL_BG_ON    = C_GOLD
 UPDALL_BG_HOV   = C_GOLD_LT
-UPDALL_FG_ON    = "#2b1f08"
+UPDALL_FG_ON    = "#ffffff"
 UPDALL_GLOW_ON  = "#4a3812"
 UPDALL_BG_OFF   = "#3a2c12"
 UPDALL_FG_OFF   = "#7a6640"
