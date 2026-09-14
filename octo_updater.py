@@ -50,6 +50,9 @@ UPDATER_VERSION  = "1.3.1"
 #     rewritten by the official launcher cannot silently drop a mod.
 #   * "Install recommended addons" is unchecked by default, so a curated
 #     AddOns folder is never filled in on first run without being asked.
+#   * The window carries OctoUpdater.ico on its title bar and taskbar entry,
+#     and an UPDATE ALL button beside PLAY updates every mod and addon with a
+#     newer version in one click - lit only while there is something to do.
 # UPDATER_VERSION is left at 1.3.1 so the daily upstream release check still
 # works. Re-run the installer after replacing this file with a stock one.
 SERVER           = "https://octowow.st"
@@ -132,6 +135,15 @@ C_LOG_BG     = "#0f0b16"
 C_OK         = "#6abf69"
 C_ERR        = "#bf6969"
 C_MOD_HL     = "#a8b83c"   # olive-green highlight for installed mods
+
+# UPDATE ALL: lit when there is something to update, faded when there is not
+UPDALL_BG_ON    = C_GOLD
+UPDALL_BG_HOV   = C_GOLD_LT
+UPDALL_FG_ON    = "#2b1f08"
+UPDALL_GLOW_ON  = "#4a3812"
+UPDALL_BG_OFF   = "#3a2c12"
+UPDALL_FG_OFF   = "#7a6640"
+UPDALL_GLOW_OFF = "#241c10"
 
 # Parchment palette for the featured news post
 C_PARCH       = "#e9dcb8"
@@ -3048,6 +3060,7 @@ class OctoUpdaterApp(tk.Tk):
         self.title("Octo Updater")
         self.resizable(False, False)
         self.configure(bg=C_BG)
+        self._apply_window_icon()
 
         # Center on screen up front. WIN_W/WIN_H are fixed, so we can position
         # the window in a single geometry call (no need to map-then-measure).
@@ -3293,6 +3306,34 @@ class OctoUpdaterApp(tk.Tk):
 
         c.create_line(0, WIN_H - self._px(1), WIN_W, WIN_H - self._px(1),
                       fill=C_PANEL_BDR)
+
+    def _apply_window_icon(self):
+        """Put OctoUpdater.ico on the title bar and the taskbar entry.
+
+        PyInstaller's --icon only brands the .exe file; the running window
+        still shows Tk's feather until iconbitmap is told otherwise. The .ico
+        is looked for next to the script, in the bundle (--add-data), and as
+        a last resort inside the frozen executable itself, whose icon
+        resource Tk can read on Windows."""
+        candidates = []
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            candidates.append(os.path.join(base, "OctoUpdater.ico"))
+        try:
+            candidates.append(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "OctoUpdater.ico"))
+        except NameError:
+            pass
+        if getattr(sys, "frozen", False):
+            candidates.append(sys.executable)
+        for path in candidates:
+            try:
+                if os.path.exists(path):
+                    self.iconbitmap(default=path)
+                    self._window_icon = path
+                    return
+            except Exception:
+                continue
 
     def _build_header(self):
         HDR_H = self._px(108)
@@ -4399,6 +4440,7 @@ class OctoUpdaterApp(tk.Tk):
         if count != self._mod_updates_count:
             self._mod_updates_count = count
             self._draw_nav_tab("MODS")
+        self._refresh_update_all_btn()
 
     # The two game-resolution fixes can't coexist: enabling one prompts to
     # replace the other (see _confirm_res_fix_toggle).
@@ -4854,6 +4896,10 @@ class OctoUpdaterApp(tk.Tk):
             # Fresh setup chain: once the default mods finished installing,
             # the recommended addons follow (no-op if already initialized).
             self._maybe_install_default_addons()
+            # UPDATE ALL: the mods half is done; the addons half follows.
+            if self._update_all_chain:
+                self._update_all_chain = False
+                self.after(0, self._addon_update_all)
 
             # Any mod in an error state (download blocked, API limit, AV
             # deleted the archive, …) — bring the MODS tab up so the error
@@ -5745,6 +5791,7 @@ class OctoUpdaterApp(tk.Tk):
         if count != self._addon_updates_count:
             self._addon_updates_count = count
             self._draw_nav_tab("ADDONS")
+        self._refresh_update_all_btn()
 
     def _refresh_addons_footer(self):
         lbl = self._addons_right_lbl
@@ -5778,8 +5825,10 @@ class OctoUpdaterApp(tk.Tk):
         # Thin halo frame around the button gives a soft glow that follows
         # the button state (gold for UPDATE, green for PLAY).
         self._btn_mode = "update"
-        self._btn_glow = tk.Frame(left, bg="#4a3812")
-        self._btn_glow.pack(anchor="w", pady=(self._px(6), self._px(6)))
+        btn_row = tk.Frame(left, bg=C_BG)
+        btn_row.pack(anchor="w", pady=(self._px(6), self._px(6)))
+        self._btn_glow = tk.Frame(btn_row, bg="#4a3812")
+        self._btn_glow.pack(side="left")
         self._upd_btn = tk.Label(self._btn_glow, text="UPDATE",
                                  font=("Segoe UI", 11, "bold"),
                                  fg="#ffffff", bg=C_GOLD,
@@ -5791,21 +5840,39 @@ class OctoUpdaterApp(tk.Tk):
         self._upd_btn.bind("<Enter>",    lambda e: self._btn_hover(True))
         self._upd_btn.bind("<Leave>",    lambda e: self._btn_hover(False))
 
+        # UPDATE ALL: every mod and addon with a newer version, in one click.
+        # Lit only while there is something to update; faded otherwise, and
+        # while any install is running. See _refresh_update_all_btn.
+        self._all_glow = tk.Frame(btn_row, bg=UPDALL_GLOW_OFF)
+        self._all_glow.pack(side="left", padx=(self._px(10), 0))
+        self._all_btn = tk.Label(self._all_glow, text="UPDATE ALL",
+                                 font=("Segoe UI", 11, "bold"),
+                                 fg=UPDALL_FG_OFF, bg=UPDALL_BG_OFF,
+                                 cursor="arrow",
+                                 width=14, pady=self._px(7),
+                                 anchor="center")
+        self._all_btn.pack(padx=self._px(3), pady=self._px(3))
+        self._all_btn.bind("<Button-1>", lambda e: self._update_all())
+        self._all_btn.bind("<Enter>",    lambda e: self._all_hover(True))
+        self._all_btn.bind("<Leave>",    lambda e: self._all_hover(False))
+        self._all_ready = False
+        self._update_all_chain = False
+
         self._client_ver_var = tk.StringVar(value="")
         tk.Label(left, textvariable=self._client_ver_var,
                  font=FONT_VER, fg=C_TEXT_DIM, bg=C_BG).pack(
                  anchor="w", pady=(0, self._px(36)))
 
         pb_frame = tk.Frame(foot, bg=C_BG)
-        pb_frame.place(x=self._px(250), y=0,
-                       width=WIN_W - self._px(250) - self._px(40), height=FOOT_H)
+        pb_frame.place(x=self._px(400), y=0,
+                       width=WIN_W - self._px(400) - self._px(40), height=FOOT_H)
 
         self._pb_canvas = tk.Canvas(pb_frame,
                                     height=self._px(6), bg=C_BG,
                                     highlightthickness=0)
         self._pb_canvas.pack(fill="x", side="bottom", padx=0,
                              ipady=0, pady=(0, self._px(56)))
-        self._pb_width  = WIN_W - self._px(250) - self._px(40)
+        self._pb_width  = WIN_W - self._px(400) - self._px(40)
         self._pb_val    = 0.0
 
         self._prog_label_var = tk.StringVar(value="")
@@ -5885,6 +5952,8 @@ class OctoUpdaterApp(tk.Tk):
         self._draw_nav_tab("MODS")
         self._draw_nav_tab("ADDONS")
         self._draw_nav_tab("MPQ")
+        self._update_all_chain = False
+        self._refresh_update_all_btn()
         self._render_addons()
         self._render_mpq()
 
@@ -6415,6 +6484,58 @@ class OctoUpdaterApp(tk.Tk):
 
     # ── button helpers ───────────────────────────────────────────────────────────
 
+    def _update_all_count(self) -> int:
+        return int(self._mod_updates_count) + int(self._addon_updates_count)
+
+    def _refresh_update_all_btn(self):
+        """Lit when at least one mod or addon has a newer version and nothing
+        is installing; faded otherwise. Called wherever either count or the
+        busy state can change."""
+        if not hasattr(self, "_all_btn"):
+            return   # footer not built yet
+        busy = (self._btn_mode == "busy" or self._addons_busy
+                or getattr(self, "_running", False))
+        ready = self._update_all_count() > 0 and not busy
+        self._all_ready = ready
+        if ready:
+            self._all_btn.configure(bg=UPDALL_BG_ON, fg=UPDALL_FG_ON,
+                                    cursor="hand2")
+            self._all_glow.configure(bg=UPDALL_GLOW_ON)
+        else:
+            self._all_btn.configure(bg=UPDALL_BG_OFF, fg=UPDALL_FG_OFF,
+                                    cursor="arrow")
+            self._all_glow.configure(bg=UPDALL_GLOW_OFF)
+
+    def _all_hover(self, entering: bool):
+        if not self._all_ready:
+            return
+        self._all_btn.configure(bg=UPDALL_BG_HOV if entering else UPDALL_BG_ON)
+
+    def _update_all(self):
+        """Update every mod with a newer version, then every addon with one.
+        The mods run through the normal Apply worker (which updates exactly
+        the enabled, non-ignored mods whose latest version differs); when it
+        finishes, _update_all_chain hands over to the addons' update-all."""
+        if not self._all_ready:
+            return
+        out = self._game_path.get().strip()
+        if not out:
+            return
+        mods = self._mod_updates_count
+        addons = self._addon_updates_count
+        self._log_line(f"\nUpdating everything: {mods} mod(s), "
+                       f"{addons} addon(s)...\n", "acct")
+        self._all_ready = False
+        self._refresh_update_all_btn()
+        if mods > 0:
+            self._update_all_chain = addons > 0
+            self._set_btn_busy("Installing…")
+            self._status_var.set("Downloading mods…")
+            threading.Thread(target=self._apply_mods_worker,
+                             args=(out,), daemon=True).start()
+        else:
+            self._addon_update_all()
+
     def _set_btn_play(self):
         self._btn_mode = "play"
         self._upd_btn.configure(text="PLAY", bg=C_GREEN_BTN, fg="#ffffff")
@@ -6429,6 +6550,7 @@ class OctoUpdaterApp(tk.Tk):
         self._btn_mode = "busy"
         self._upd_btn.configure(text=label, bg="#2a2434", fg=C_TEXT_DIM)
         self._btn_glow.configure(bg="#211c2c")
+        self._refresh_update_all_btn()
 
     def _btn_hover(self, entering: bool):
         if self._btn_mode == "busy":
@@ -6467,6 +6589,7 @@ class OctoUpdaterApp(tk.Tk):
         else:
             self._set_btn_play()
             self._status_var.set("Everything up to date!")
+        self._refresh_update_all_btn()
 
     def _btn_click(self):
         if self._btn_mode == "play":

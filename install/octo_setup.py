@@ -428,6 +428,299 @@ def remove_dll(client_dir: str, name: str):
                     "Mods tab.\\n", "err")''',
     ),
     (
+        'the window carries its own icon',
+        '''        self.title("Octo Updater")
+        self.resizable(False, False)
+        self.configure(bg=C_BG)
+''',
+        '''        self.title("Octo Updater")
+        self.resizable(False, False)
+        self.configure(bg=C_BG)
+        self._apply_window_icon()
+''',
+    ),
+    (
+        'window icon helper',
+        '''    def _build_header(self):
+        HDR_H = self._px(108)
+''',
+        '''    def _apply_window_icon(self):
+        """Put OctoUpdater.ico on the title bar and the taskbar entry.
+
+        PyInstaller's --icon only brands the .exe file; the running window
+        still shows Tk's feather until iconbitmap is told otherwise. The .ico
+        is looked for next to the script, in the bundle (--add-data), and as
+        a last resort inside the frozen executable itself, whose icon
+        resource Tk can read on Windows."""
+        candidates = []
+        base = getattr(sys, "_MEIPASS", None)
+        if base:
+            candidates.append(os.path.join(base, "OctoUpdater.ico"))
+        try:
+            candidates.append(os.path.join(
+                os.path.dirname(os.path.abspath(__file__)), "OctoUpdater.ico"))
+        except NameError:
+            pass
+        if getattr(sys, "frozen", False):
+            candidates.append(sys.executable)
+        for path in candidates:
+            try:
+                if os.path.exists(path):
+                    self.iconbitmap(default=path)
+                    self._window_icon = path
+                    return
+            except Exception:
+                continue
+
+    def _build_header(self):
+        HDR_H = self._px(108)
+''',
+    ),
+    (
+        'UPDATE ALL beside PLAY',
+        '''        # Thin halo frame around the button gives a soft glow that follows
+        # the button state (gold for UPDATE, green for PLAY).
+        self._btn_mode = "update"
+        self._btn_glow = tk.Frame(left, bg="#4a3812")
+        self._btn_glow.pack(anchor="w", pady=(self._px(6), self._px(6)))
+        self._upd_btn = tk.Label(self._btn_glow, text="UPDATE",
+                                 font=("Segoe UI", 11, "bold"),
+                                 fg="#ffffff", bg=C_GOLD,
+                                 cursor="hand2",
+                                 width=14, pady=self._px(7),
+                                 anchor="center")
+        self._upd_btn.pack(padx=self._px(3), pady=self._px(3))
+        self._upd_btn.bind("<Button-1>", lambda e: self._btn_click())
+        self._upd_btn.bind("<Enter>",    lambda e: self._btn_hover(True))
+        self._upd_btn.bind("<Leave>",    lambda e: self._btn_hover(False))
+''',
+        '''        # Thin halo frame around the button gives a soft glow that follows
+        # the button state (gold for UPDATE, green for PLAY).
+        self._btn_mode = "update"
+        btn_row = tk.Frame(left, bg=C_BG)
+        btn_row.pack(anchor="w", pady=(self._px(6), self._px(6)))
+        self._btn_glow = tk.Frame(btn_row, bg="#4a3812")
+        self._btn_glow.pack(side="left")
+        self._upd_btn = tk.Label(self._btn_glow, text="UPDATE",
+                                 font=("Segoe UI", 11, "bold"),
+                                 fg="#ffffff", bg=C_GOLD,
+                                 cursor="hand2",
+                                 width=14, pady=self._px(7),
+                                 anchor="center")
+        self._upd_btn.pack(padx=self._px(3), pady=self._px(3))
+        self._upd_btn.bind("<Button-1>", lambda e: self._btn_click())
+        self._upd_btn.bind("<Enter>",    lambda e: self._btn_hover(True))
+        self._upd_btn.bind("<Leave>",    lambda e: self._btn_hover(False))
+
+        # UPDATE ALL: every mod and addon with a newer version, in one click.
+        # Lit only while there is something to update; faded otherwise, and
+        # while any install is running. See _refresh_update_all_btn.
+        self._all_glow = tk.Frame(btn_row, bg=UPDALL_GLOW_OFF)
+        self._all_glow.pack(side="left", padx=(self._px(10), 0))
+        self._all_btn = tk.Label(self._all_glow, text="UPDATE ALL",
+                                 font=("Segoe UI", 11, "bold"),
+                                 fg=UPDALL_FG_OFF, bg=UPDALL_BG_OFF,
+                                 cursor="arrow",
+                                 width=14, pady=self._px(7),
+                                 anchor="center")
+        self._all_btn.pack(padx=self._px(3), pady=self._px(3))
+        self._all_btn.bind("<Button-1>", lambda e: self._update_all())
+        self._all_btn.bind("<Enter>",    lambda e: self._all_hover(True))
+        self._all_btn.bind("<Leave>",    lambda e: self._all_hover(False))
+        self._all_ready = False
+        self._update_all_chain = False
+''',
+    ),
+    (
+        'progress bar starts right of the two buttons',
+        '''        pb_frame = tk.Frame(foot, bg=C_BG)
+        pb_frame.place(x=self._px(250), y=0,
+                       width=WIN_W - self._px(250) - self._px(40), height=FOOT_H)
+''',
+        '''        pb_frame = tk.Frame(foot, bg=C_BG)
+        pb_frame.place(x=self._px(400), y=0,
+                       width=WIN_W - self._px(400) - self._px(40), height=FOOT_H)
+''',
+    ),
+    (
+        'progress bar width follows',
+        '''        self._pb_width  = WIN_W - self._px(250) - self._px(40)
+''',
+        '''        self._pb_width  = WIN_W - self._px(400) - self._px(40)
+''',
+    ),
+    (
+        'UPDATE ALL colours',
+        '''C_MOD_HL     = "#a8b83c"   # olive-green highlight for installed mods
+''',
+        '''C_MOD_HL     = "#a8b83c"   # olive-green highlight for installed mods
+
+# UPDATE ALL: lit when there is something to update, faded when there is not
+UPDALL_BG_ON    = C_GOLD
+UPDALL_BG_HOV   = C_GOLD_LT
+UPDALL_FG_ON    = "#2b1f08"
+UPDALL_GLOW_ON  = "#4a3812"
+UPDALL_BG_OFF   = "#3a2c12"
+UPDALL_FG_OFF   = "#7a6640"
+UPDALL_GLOW_OFF = "#241c10"
+''',
+    ),
+    (
+        'UPDATE ALL state, hover and click',
+        '''    def _set_btn_play(self):
+        self._btn_mode = "play"
+''',
+        '''    def _update_all_count(self) -> int:
+        return int(self._mod_updates_count) + int(self._addon_updates_count)
+
+    def _refresh_update_all_btn(self):
+        """Lit when at least one mod or addon has a newer version and nothing
+        is installing; faded otherwise. Called wherever either count or the
+        busy state can change."""
+        if not hasattr(self, "_all_btn"):
+            return   # footer not built yet
+        busy = (self._btn_mode == "busy" or self._addons_busy
+                or getattr(self, "_running", False))
+        ready = self._update_all_count() > 0 and not busy
+        self._all_ready = ready
+        if ready:
+            self._all_btn.configure(bg=UPDALL_BG_ON, fg=UPDALL_FG_ON,
+                                    cursor="hand2")
+            self._all_glow.configure(bg=UPDALL_GLOW_ON)
+        else:
+            self._all_btn.configure(bg=UPDALL_BG_OFF, fg=UPDALL_FG_OFF,
+                                    cursor="arrow")
+            self._all_glow.configure(bg=UPDALL_GLOW_OFF)
+
+    def _all_hover(self, entering: bool):
+        if not self._all_ready:
+            return
+        self._all_btn.configure(bg=UPDALL_BG_HOV if entering else UPDALL_BG_ON)
+
+    def _update_all(self):
+        """Update every mod with a newer version, then every addon with one.
+        The mods run through the normal Apply worker (which updates exactly
+        the enabled, non-ignored mods whose latest version differs); when it
+        finishes, _update_all_chain hands over to the addons' update-all."""
+        if not self._all_ready:
+            return
+        out = self._game_path.get().strip()
+        if not out:
+            return
+        mods = self._mod_updates_count
+        addons = self._addon_updates_count
+        self._log_line(f"\\nUpdating everything: {mods} mod(s), "
+                       f"{addons} addon(s)...\\n", "acct")
+        self._all_ready = False
+        self._refresh_update_all_btn()
+        if mods > 0:
+            self._update_all_chain = addons > 0
+            self._set_btn_busy("Installing…")
+            self._status_var.set("Downloading mods…")
+            threading.Thread(target=self._apply_mods_worker,
+                             args=(out,), daemon=True).start()
+        else:
+            self._addon_update_all()
+
+    def _set_btn_play(self):
+        self._btn_mode = "play"
+''',
+    ),
+    (
+        'mods badge refreshes UPDATE ALL',
+        '''        if count != self._mod_updates_count:
+            self._mod_updates_count = count
+            self._draw_nav_tab("MODS")
+''',
+        '''        if count != self._mod_updates_count:
+            self._mod_updates_count = count
+            self._draw_nav_tab("MODS")
+        self._refresh_update_all_btn()
+''',
+    ),
+    (
+        'addons badge refreshes UPDATE ALL',
+        '''        if count != self._addon_updates_count:
+            self._addon_updates_count = count
+            self._draw_nav_tab("ADDONS")
+''',
+        '''        if count != self._addon_updates_count:
+            self._addon_updates_count = count
+            self._draw_nav_tab("ADDONS")
+        self._refresh_update_all_btn()
+''',
+    ),
+    (
+        'busy and ready states refresh UPDATE ALL',
+        '''    def _set_btn_busy(self, label="…"):
+        self._btn_mode = "busy"
+        self._upd_btn.configure(text=label, bg="#2a2434", fg=C_TEXT_DIM)
+        self._btn_glow.configure(bg="#211c2c")
+''',
+        '''    def _set_btn_busy(self, label="…"):
+        self._btn_mode = "busy"
+        self._upd_btn.configure(text=label, bg="#2a2434", fg=C_TEXT_DIM)
+        self._btn_glow.configure(bg="#211c2c")
+        self._refresh_update_all_btn()
+''',
+    ),
+    (
+        'ready state refreshes UPDATE ALL',
+        '''        if self._mods_have_errors():
+            self._set_btn_busy("PLAY")
+            self._status_var.set("Mod errors — check MODS tab")
+        else:
+            self._set_btn_play()
+            self._status_var.set("Everything up to date!")
+''',
+        '''        if self._mods_have_errors():
+            self._set_btn_busy("PLAY")
+            self._status_var.set("Mod errors — check MODS tab")
+        else:
+            self._set_btn_play()
+            self._status_var.set("Everything up to date!")
+        self._refresh_update_all_btn()
+''',
+    ),
+    (
+        'mods done hands over to the addons',
+        '''            self._apply_btn.configure(text="Apply", bg=C_PANEL_BDR, fg=C_TEXT)
+            self._refresh_apply_btn_visibility()
+            self._refresh_mods_badge()
+            # Fresh setup chain: once the default mods finished installing,
+            # the recommended addons follow (no-op if already initialized).
+            self._maybe_install_default_addons()
+''',
+        '''            self._apply_btn.configure(text="Apply", bg=C_PANEL_BDR, fg=C_TEXT)
+            self._refresh_apply_btn_visibility()
+            self._refresh_mods_badge()
+            # Fresh setup chain: once the default mods finished installing,
+            # the recommended addons follow (no-op if already initialized).
+            self._maybe_install_default_addons()
+            # UPDATE ALL: the mods half is done; the addons half follows.
+            if self._update_all_chain:
+                self._update_all_chain = False
+                self.after(0, self._addon_update_all)
+''',
+    ),
+    (
+        'folder change resets UPDATE ALL',
+        '''        self._draw_nav_tab("MODS")
+        self._draw_nav_tab("ADDONS")
+        self._draw_nav_tab("MPQ")
+        self._render_addons()
+        self._render_mpq()
+''',
+        '''        self._draw_nav_tab("MODS")
+        self._draw_nav_tab("ADDONS")
+        self._draw_nav_tab("MPQ")
+        self._update_all_chain = False
+        self._refresh_update_all_btn()
+        self._render_addons()
+        self._render_mpq()
+''',
+    ),
+    (
         "patched-build banner",
         'UPDATER_VERSION  = "1.3.1"',
         '''UPDATER_VERSION  = "1.3.1"
@@ -451,6 +744,9 @@ def remove_dll(client_dir: str, name: str):
 #     rewritten by the official launcher cannot silently drop a mod.
 #   * "Install recommended addons" is unchecked by default, so a curated
 #     AddOns folder is never filled in on first run without being asked.
+#   * The window carries OctoUpdater.ico on its title bar and taskbar entry,
+#     and an UPDATE ALL button beside PLAY updates every mod and addon with a
+#     newer version in one click - lit only while there is something to do.
 # UPDATER_VERSION is left at 1.3.1 so the daily upstream release check still
 # works. Re-run the installer after replacing this file with a stock one.''',
     ),
@@ -868,7 +1164,7 @@ def build_exe(repo):
            "--workpath", os.path.join(repo, "build"),
            "--specpath", repo]
     if os.path.exists(icon):
-        cmd += ["--icon", icon]
+        cmd += ["--icon", icon, "--add-data", icon + os.pathsep + "."]
     cmd.append(os.path.join(repo, "octo_updater.py"))
 
     info("running PyInstaller (20-60 seconds)...")
